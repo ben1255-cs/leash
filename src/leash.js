@@ -5,13 +5,11 @@
 //
 // Rules are deterministic and can never be overridden by the AI; the AI reviewer can only
 // make a payment *riskier*, never safer.
-import Anthropic from '@anthropic-ai/sdk';
+import { aiLive, aiLabel, complete } from './llm.js';
 import { db, save, findPayeeByEmail, findPayeeByName, spentToday, addActivity } from './store.js';
 import { sendPayout, runToolkitTool, getPayoutStatus } from './paypal.js';
 
-const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
-export const aiLive = Boolean(anthropic);
-const REVIEW_MODEL = process.env.LEASH_REVIEW_MODEL || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
+export { aiLive };
 
 const money = (n, c = 'USD') =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(n || 0);
@@ -177,7 +175,7 @@ function runRules(intent, run) {
 // ---------- 4. Independent AI reviewer ----------
 
 async function aiReview(intent, run, checks, p) {
-  if (!anthropic) return null;
+  if (!aiLive) return null;
   const known = p.known ? `${p.known.name} <${p.known.email}>, history: ${JSON.stringify(p.known.history)}` : 'not a known payee';
   const sources = p.sources.map((s) => `--- EMAIL from ${s.from} | ${s.subject}\n${s.body}`).join('\n') || '(none)';
   const prompt = `You are Leash, an independent payment risk reviewer. An AI agent wants to perform a payment action.
@@ -193,16 +191,11 @@ ${sources}
 Score the risk that this action is wrong, fraudulent, or not what the owner intended, from 0 (routine) to 1 (certainly harmful).
 Reply with JSON only: {"risk": number, "explanation": "one or two plain-English sentences for a non-technical business owner"}`;
   try {
-    const msg = await anthropic.messages.create({
-      model: REVIEW_MODEL,
-      max_tokens: 300,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = msg.content.map((c) => c.text || '').join('');
+    const text = await complete(prompt);
     const json = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
-    return { risk: Math.max(0, Math.min(1, Number(json.risk) || 0)), explanation: json.explanation, model: REVIEW_MODEL };
+    return { risk: Math.max(0, Math.min(1, Number(json.risk) || 0)), explanation: json.explanation, model: aiLabel };
   } catch (err) {
-    return { risk: null, explanation: `AI review unavailable (${err.message.slice(0, 80)}); rules applied alone.`, model: REVIEW_MODEL };
+    return { risk: null, explanation: `AI review unavailable (${err.message.slice(0, 80)}); rules applied alone.`, model: aiLabel };
   }
 }
 
@@ -238,7 +231,9 @@ export async function guard(tool, args, run) {
     ai,
     risk: Math.round(risk * 100) / 100,
     light,
-    reason: ai?.explanation && light !== 'green' ? ai.explanation : explain(light, checks),
+    // Explain using whichever layer drove the decision.
+    reason: ai?.explanation && light !== 'green' && rAi != null && rAi > rRules ? ai.explanation : explain(light, checks),
+    aiNote: ai?.explanation || null,
     sourceEmails: p.sources.map((s) => s.id),
     status: light === 'green' ? 'executing' : light === 'amber' ? 'pending' : 'blocked',
   };

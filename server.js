@@ -3,7 +3,8 @@ import express from 'express';
 import path from 'node:path';
 import { db, save, reset, addActivity } from './src/store.js';
 import { paypalLive, verifyWebhook } from './src/paypal.js';
-import { aiLive, approve, reject, refresh } from './src/leash.js';
+import { approve, reject, refresh } from './src/leash.js';
+import { aiLive, aiLabel, provider } from './src/llm.js';
 import { startRun } from './src/agent.js';
 import { inbox, DEFAULT_INSTRUCTION } from './src/demo-data.js';
 
@@ -30,7 +31,8 @@ app.get('/api/state', (req, res) => {
   res.json({
     config: {
       paypal: paypalLive ? 'sandbox' : 'simulated',
-      ai: aiLive ? 'claude' : 'offline',
+      ai: aiLive ? provider.label : 'offline',
+      aiModel: aiLabel,
       passwordRequired: Boolean(PASSWORD),
       defaultInstruction: DEFAULT_INSTRUCTION,
     },
@@ -103,5 +105,5 @@ app.get('/healthz', (req, res) => res.send('ok'));
 
 const port = process.env.PORT || 3000;
 app.listen(port, () =>
-  console.log(`Leash running on http://localhost:${port}  (PayPal: ${paypalLive ? 'sandbox' : 'simulated'}, AI: ${aiLive ? 'Claude' : 'offline'})`),
+  console.log(`Leash running on http://localhost:${port}  (PayPal: ${paypalLive ? 'sandbox' : 'simulated'}, AI: ${aiLabel})`),
 );

@@ -1,31 +1,27 @@
 // The AI agent that does the finance work. It has real PayPal tools,
 // but every money-moving tool is wrapped by Leash.
-import Anthropic from '@anthropic-ai/sdk';
+import { aiLive, runAgentLoop } from './llm.js';
 import { db, save, addActivity } from './store.js';
 import { inboxAsAgentSees } from './demo-data.js';
 import { toolkitTools } from './paypal.js';
 import { guard, agentMessage } from './leash.js';
 
-const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
-const AGENT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
-
-const stripSchema = ({ $schema, ...rest }) => rest;
 
 const TOOLS = [
   {
     name: 'read_inbox',
     description: "Read the business owner's recent emails (invoices from contractors, messages from clients).",
-    input_schema: { type: 'object', properties: {} },
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'list_payees',
     description: 'List known contractors and clients with their PayPal email and payment history.',
-    input_schema: { type: 'object', properties: {} },
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'send_payout',
     description: 'Send money from the business PayPal account to a person by their PayPal email (PayPal Payouts).',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         receiver_email: { type: 'string', description: 'PayPal email of the person being paid' },
@@ -41,7 +37,7 @@ const TOOLS = [
   ...toolkitTools.map((t) => ({
     name: t.function.name,
     description: t.function.description,
-    input_schema: stripSchema(t.function.parameters),
+    parameters: t.function.parameters,
   })),
 ];
 
@@ -65,11 +61,11 @@ async function runTool(run, name, input) {
 }
 
 export function startRun({ instruction, mode }) {
-  const useClaude = mode !== 'scripted' && anthropic;
+  const useAI = mode !== 'scripted' && aiLive;
   const run = {
     id: crypto.randomUUID(),
     instruction,
-    mode: useClaude ? 'claude' : 'scripted',
+    mode: useAI ? 'ai' : 'scripted',
     startedAt: new Date().toISOString(),
     status: 'running',
     untrusted: [],
@@ -77,7 +73,7 @@ export function startRun({ instruction, mode }) {
   db().runs.push(run);
   addActivity(run.id, 'user', instruction);
   save();
-  (useClaude ? claudeAgent(run) : scriptedAgent(run))
+  (useAI ? aiAgent(run) : scriptedAgent(run))
     .then(() => (run.status = 'done'))
     .catch((err) => {
       run.status = 'error';
@@ -87,31 +83,22 @@ export function startRun({ instruction, mode }) {
   return run;
 }
 
-// ---------- Live agent (Claude + tool use) ----------
+// ---------- Live AI agent (tool use) ----------
 
-async function claudeAgent(run) {
+async function aiAgent(run) {
   const system = `You are the finance assistant for Northside Studio, a small design agency. Today is ${new Date().toDateString()}.
 You carry out the owner's requests using your tools: read the inbox, check payees, pay contractors with send_payout, and bill clients with create_invoice then send_invoice.
 Use ${db().rules.currency} unless told otherwise. When you finish, give the owner a short summary of what was paid, what is waiting for approval and what was blocked.`;
-  const messages = [{ role: 'user', content: run.instruction }];
-
-  for (let step = 0; step < 15; step++) {
-    const res = await anthropic.messages.create({ model: AGENT_MODEL, max_tokens: 2000, system, tools: TOOLS, messages });
-    messages.push({ role: 'assistant', content: res.content });
-    for (const block of res.content) {
-      if (block.type === 'text' && block.text.trim()) addActivity(run.id, 'agent', block.text.trim());
-    }
-    const calls = res.content.filter((b) => b.type === 'tool_use');
-    if (res.stop_reason !== 'tool_use' || !calls.length) break;
-
-    const results = [];
-    for (const call of calls) {
-      if (!GUARDED.has(call.name)) addActivity(run.id, 'tool', `${call.name}()`);
-      const out = await runTool(run, call.name, call.input);
-      results.push({ type: 'tool_result', tool_use_id: call.id, content: out });
-    }
-    messages.push({ role: 'user', content: results });
-  }
+  await runAgentLoop({
+    system,
+    user: run.instruction,
+    tools: TOOLS,
+    onText: (text) => addActivity(run.id, 'agent', text),
+    runTool: async (name, input) => {
+      if (!GUARDED.has(name)) addActivity(run.id, 'tool', `${name}()`);
+      return runTool(run, name, input);
+    },
+  });
 }
 
 // ---------- Scripted agent (deterministic, no AI key needed) ----------

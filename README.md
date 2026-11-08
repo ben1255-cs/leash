@@ -36,7 +36,7 @@ Open the **Inbox** tab to see the hidden text revealed, and the **Audit log** ta
 ## How it works
 
 ```
-Owner instruction ──► AI agent (Claude, tool use)
+Owner instruction ──► AI agent (Gemini, tool use)
                           │  read_inbox, list_payees        (untrusted / trusted data)
                           │  send_payout                    (PayPal Payouts API)
                           │  create_invoice, send_invoice   (PayPal Agent Toolkit)
@@ -69,7 +69,7 @@ Owner instruction ──► AI agent (Claude, tool use)
 | **Webhooks** + signature verification | Payout/invoice confirmations into the audit log | `server.js` |
 | **OAuth 2.0** client credentials | Sandbox auth | `src/paypal.js` |
 
-Also uses **AG Grid** (audit log), **Claude** (agent + independent risk reviewer) and **Render** (hosting).
+Also uses **Google Gemini** (agent + independent risk reviewer, free tier), **AG Grid** (audit log) and **Render** (hosting). Groq or Anthropic Claude also work by setting their key instead.
 
 ## Run it locally
 
@@ -88,7 +88,7 @@ npm start                # http://localhost:3000
 | Variable | Needed for |
 |---|---|
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Real PayPal **sandbox** payouts and invoices |
-| `ANTHROPIC_API_KEY` | The live Claude agent and the AI risk reviewer |
+| `GEMINI_API_KEY` | The live AI agent and the AI risk reviewer. Free key, no card: [aistudio.google.com/apikey](https://aistudio.google.com/apikey). (`GROQ_API_KEY` or `ANTHROPIC_API_KEY` also work.) |
 | `PAYPAL_WEBHOOK_ID` | Verifying webhook signatures (optional) |
 | `CURRENCY` | Defaults to `USD`; must match your sandbox business account |
 | `DEMO_PASSWORD` | Optional: protects the buttons on a public deployment |
@@ -105,7 +105,7 @@ Payouts to the demo addresses (`@example.com`) are accepted by the sandbox as un
 ## Testing instructions for judges
 
 1. Open the live demo (or run locally as above).
-2. On **Live**, click **Run agent** (choose *Claude* for the live AI agent, or *Scripted* for a deterministic run).
+2. On **Live**, click **Run agent** (choose the live AI agent, or *Scripted* for a deterministic run).
 3. Watch the timeline: two green actions go through, one amber waits for you, and the $2,000 "Tom" payment is blocked in red.
 4. Click **Approve & pay** on the amber card. Sam is paid and added to trusted payees.
 5. Open **Inbox** to see the hidden instruction, **Audit log** for every decision (sortable and filterable), and **Rules** to change limits and rerun.
@@ -118,7 +118,8 @@ _Demo password (if set): add it here._
 ```
 server.js           Express API, webhooks, static UI
 src/leash.js        The firewall: intent, provenance, rules, AI reviewer, execution
-src/agent.js        Claude agent with tool use + scripted demo agent
+src/agent.js        AI agent with tool use + scripted demo agent
+src/llm.js          AI provider layer (Gemini / Groq / Claude)
 src/paypal.js       PayPal OAuth, Payouts, Agent Toolkit, webhook verification
 src/store.js        JSON persistence
 src/demo-data.js    Seed payees, rules and inbox

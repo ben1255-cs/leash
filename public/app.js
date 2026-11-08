@@ -42,10 +42,12 @@ function renderStatus() {
   const { paypal, ai } = state.config;
   $('#status').innerHTML =
     `<span class="pill ${paypal === 'sandbox' ? 'on' : 'off'}">PayPal: ${paypal === 'sandbox' ? 'Sandbox connected' : 'Simulated'}</span>` +
-    `<span class="pill ${ai === 'claude' ? 'on' : 'off'}">AI: ${ai === 'claude' ? 'Claude' : 'Offline'}</span>`;
+    `<span class="pill ${ai !== 'offline' ? 'on' : 'off'}" title="${esc(state.config.aiModel || '')}">AI: ${ai !== 'offline' ? esc(ai) : 'Offline'}</span>`;
   const mode = $('#mode');
-  mode.querySelector('[value=claude]').disabled = ai !== 'claude';
-  if (ai !== 'claude') mode.value = 'scripted';
+  const opt = mode.querySelector('[value=ai]');
+  opt.disabled = ai === 'offline';
+  opt.textContent = ai === 'offline' ? 'Live AI agent (add a key)' : `${ai} (live AI agent)`;
+  if (ai === 'offline') mode.value = 'scripted';
 }
 
 function renderStats() {
@@ -96,6 +98,7 @@ function card(d) {
       <span class="badge ${d.status}">${d.status === 'executed' ? title : statusText[d.status] || d.status}</span>
     </div>
     <p class="reason">${esc(d.reason)}</p>
+    ${d.aiNote && d.aiNote !== d.reason ? `<p class="reason muted small">AI reviewer: ${esc(d.aiNote)}</p>` : ''}
     <div class="checks">${checks}</div>
     <div class="meta">
       <span>Risk <b>${d.risk.toFixed(2)}</b></span>

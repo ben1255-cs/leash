@@ -10,7 +10,7 @@ const PROVIDERS = {
     label: 'Gemini',
     key: process.env.GEMINI_API_KEY,
     baseUrl: process.env.AI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai',
-    model: process.env.AI_MODEL || 'gemini-2.5-flash',
+    model: process.env.AI_MODEL || 'gemini-flash-latest',
   },
   groq: {
     label: 'Groq',
@@ -33,25 +33,79 @@ export const aiLabel = provider ? `${provider.label} (${provider.model})` : 'off
 const anthropic = provider?.id === 'claude' ? new Anthropic({ apiKey: provider.key }) : null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const REQUEST_TIMEOUT_MS = 60000;
 
-/** OpenAI-compatible chat completion with retry on free-tier rate limits. */
-async function openaiChat(body) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const res = await fetch(`${provider.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${provider.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: provider.model, ...body }),
+// Model preference for Gemini. If a model is retired or has no free quota for this key,
+// Leash asks the API which models exist and falls back automatically.
+const GEMINI_PREFERRED = [
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+];
+let currentModel = provider?.model;
+const triedModels = new Set();
+
+async function nextGeminiModel() {
+  triedModels.add(currentModel);
+  let available = [];
+  try {
+    const res = await fetch(`${provider.baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${provider.key}` },
+      signal: AbortSignal.timeout(15000),
     });
-    if (res.status === 429 || res.status === 503) {
-      const wait = Number(res.headers.get('retry-after')) * 1000 || 8000 * (attempt + 1);
-      await sleep(Math.min(wait, 30000));
-      continue;
+    const json = await res.json();
+    available = (json.data || []).map((m) => String(m.id).replace(/^models\//, ''));
+  } catch (err) {
+    console.error('Could not list Gemini models:', err.message);
+  }
+  const flash = available.filter((m) => /flash/.test(m) && !/(image|tts|audio|live|embed|thinking-exp)/.test(m));
+  const candidates = [...GEMINI_PREFERRED.filter((m) => !available.length || available.includes(m)), ...flash];
+  const next = candidates.find((m) => !triedModels.has(m));
+  if (!next) return null;
+  console.log(`Gemini: switching model ${currentModel} -> ${next}`);
+  currentModel = next;
+  return next;
+}
+
+export const currentModelName = () => currentModel;
+
+/** OpenAI-compatible chat completion: times out, retries brief rate limits, falls back to another model. */
+async function openaiChat(body) {
+  let rateLimitRetries = 0;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    let res;
+    try {
+      res = await fetch(`${provider.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${provider.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: currentModel, ...body }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      console.error(`${provider.label} request failed (${currentModel}):`, err.message);
+      if (provider.id === 'gemini' && (await nextGeminiModel())) continue;
+      throw new Error(`${provider.label} did not respond in time. Try again, or use the Scripted demo agent.`);
     }
     const text = await res.text();
-    if (!res.ok) throw new Error(`${provider.label} error ${res.status}: ${text.slice(0, 300)}`);
-    return JSON.parse(text);
+    if (res.ok) return JSON.parse(text);
+    console.error(`${provider.label} ${res.status} (${currentModel}): ${text.slice(0, 500)}`);
+
+    const noFreeQuota = res.status === 429 && /limit:\s*0|per day|PerDay|RESOURCE_EXHAUSTED.*free/i.test(text);
+    const modelGone = res.status === 404 || (res.status === 400 && /model/i.test(text) && /not (found|supported|available)/i.test(text));
+    if (provider.id === 'gemini' && (modelGone || noFreeQuota) && (await nextGeminiModel())) continue;
+
+    if ((res.status === 429 || res.status === 503) && rateLimitRetries < 3) {
+      rateLimitRetries++;
+      const wait = Number(res.headers.get('retry-after')) * 1000 || 10000 * rateLimitRetries;
+      await sleep(Math.min(wait, 20000));
+      continue;
+    }
+    throw new Error(`${provider.label} error ${res.status} (${currentModel}): ${text.slice(0, 300)}`);
   }
-  throw new Error(`${provider.label} rate limit: try again in a minute`);
+  throw new Error(`${provider.label}: no working model found for this key. Use the Scripted demo agent for now.`);
 }
 
 /** Keep only the JSON-schema keywords every provider accepts. */

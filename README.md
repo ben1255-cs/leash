@@ -12,7 +12,7 @@ AI agents can now move real money through PayPal. Leash sits between the agent a
 
 Built for the PayPal AI Hackathon 2026.
 
-> **Live demo:** _add your Render URL here_ · **Video:** _add your YouTube link here_
+> **Live demo:** https://leash-9g1k.onrender.com (password: `northside`) · **Video:** YOUR-YOUTUBE-LINK
 
 ---
 
@@ -69,14 +69,28 @@ Owner instruction ──► AI agent (Gemini, tool use)
 | **Webhooks** + signature verification | Payout/invoice confirmations into the audit log | `server.js` |
 | **OAuth 2.0** client credentials | Sandbox auth | `src/paypal.js` |
 
-Also uses **Google Gemini** (agent + independent risk reviewer, free tier), **AG Grid** (audit log) and **Render** (hosting). Groq or Anthropic Claude also work by setting their key instead.
+### AI integration
+
+| AI tool | Used for | Where |
+|---|---|---|
+| **Google Gemini** (`gemini-flash-latest`, free tier, via the OpenAI-compatible Gemini API) | The finance agent: reads the inbox and calls the PayPal tools using tool calling | `src/agent.js`, `src/llm.js` |
+| **Google Gemini** (separate call) | The independent risk reviewer: scores every payment 0–1 with a plain-English explanation | `src/leash.js`, `src/llm.js` |
+
+If a Gemini model is retired or has no free quota, Leash automatically switches to another available model. Groq or Anthropic Claude also work by setting their key instead.
+
+### Sponsor tools
+
+| Tool | Used for |
+|---|---|
+| **AG Grid** (Community) | The sortable, filterable audit log of every decision (`public/app.js`) |
+| **Render** | Hosting the live demo, deployed from this repo via `render.yaml` |
 
 ## Run it locally
 
 Requires Node.js 20+.
 
 ```bash
-git clone https://github.com/<your-username>/leash.git
+git clone https://github.com/ben1255-cs/leash.git
 cd leash
 npm install
 cp .env.example .env     # then fill in the keys below
@@ -104,14 +118,16 @@ Payouts to the demo addresses (`@example.com`) are accepted by the sandbox as un
 
 ## Testing instructions for judges
 
-1. Open the live demo (or run locally as above).
-2. On **Live**, click **Run agent** (choose the live AI agent, or *Scripted* for a deterministic run).
-3. Watch the timeline: two green actions go through, one amber waits for you, and the $2,000 "Tom" payment is blocked in red.
+**Demo password: `northside`** (asked for the first time you click **Run agent** or **Approve & pay**).
+
+1. Open https://leash-9g1k.onrender.com. Free hosting: the first load may take ~50 seconds while the server wakes up.
+2. On **Live**, pick an agent: **Scripted demo agent** (same run every time, ~10 seconds) or **Gemini (live AI agent)** (30 seconds to 2 minutes on the free tier).
+3. Click **Run agent** and watch the timeline: two green actions go through, one amber waits for you, and the $2,000 "Tom" payment is blocked in red.
 4. Click **Approve & pay** on the amber card. Sam is paid and added to trusted payees.
 5. Open **Inbox** to see the hidden instruction, **Audit log** for every decision (sortable and filterable), and **Rules** to change limits and rerun.
 6. Click **Reset demo** to start again.
 
-_Demo password (if set): add it here._
+All payments use the PayPal sandbox. No real money moves.
 
 ## Project structure
 
@@ -128,4 +144,5 @@ public/             Dashboard (vanilla JS + AG Grid)
 
 ## License
 
+Released under the [MIT License](LICENSE). © 2026 Ben Trotter.
 [MIT](LICENSE)

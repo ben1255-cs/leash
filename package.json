@@ -1,0 +1,22 @@
+{
+  "name": "leash",
+  "version": "1.0.0",
+  "description": "A spending firewall for AI agents that pay through PayPal",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.60.0",
+    "@paypal/agent-toolkit": "^1.11.0",
+    "ag-grid-community": "^34.2.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
+}
